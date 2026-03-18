@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# JARVIS AI Assistant - Jetson Orin (Auto‑detecting PyTorch)
+# JARVIS AI Assistant - Jetson Orin (Auto-detecting PyTorch)
 # Run with: bash install_jarvis_jetson.sh
 
 set -e
@@ -94,7 +94,7 @@ case $JETPACK_VERSION in
         ;;
     36)  # JetPack 6.x (L4T R36)
         if [ "$PYTHON_VERSION" == "3.10" ]; then
-            TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.1.0a0+...-cp310-cp310-linux_aarch64.whl"
+            TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.1.0-cp310-cp310-linux_aarch64.whl"
         else
             print_error "JetPack 6 requires Python 3.10, you have $PYTHON_VERSION"
             exit 1
@@ -177,10 +177,10 @@ echo "3) mistral:7b (largest, slow)"
 echo "4) Skip"
 read -p "Enter choice [1-4]: " model_choice
 case $model_choice in
-    1) ollama pull tinyllama; echo "tinyllama" > ~/jarvis_default_model.txt ;;
-    2) ollama pull phi:2.7b; echo "phi:2.7b" > ~/jarvis_default_model.txt ;;
-    3) ollama pull mistral:7b; echo "mistral:7b" > ~/jarvis_default_model.txt ;;
-    *) echo "Skipping"; echo "tinyllama" > ~/jarvis_default_model.txt ;;
+    1) ollama pull tinyllama; echo "tinyllama" > ~/jarvis_default_model.txt ;; 
+    2) ollama pull phi:2.7b; echo "phi:2.7b" > ~/jarvis_default_model.txt ;; 
+    3) ollama pull mistral:7b; echo "mistral:7b" > ~/jarvis_default_model.txt ;; 
+    *) echo "Skipping"; echo "tinyllama" > ~/jarvis_default_model.txt ;; 
 esac
 
 # ---------- Vosk model ----------
@@ -194,14 +194,64 @@ print_success "Vosk model ready"
 
 # ---------- Create app directory and Python script ----------
 mkdir -p ~/jarvis_app
+mkdir -p ~/jarvis_app/data
 cd ~/jarvis_app
 
-# (Paste the full Python script here – use the same one from your original)
-# For brevity, I'll assume you keep your existing jarvis_jetson.py content.
-# If you need the full script again, I can provide it.
-
+# Create the JARVIS Python script
 cat > jarvis_jetson.py << 'EOF'
-# Your JARVIS Python code goes here (same as before)
+#!/usr/bin/env python3
+"""
+JARVIS AI Assistant - Jetson Orin
+A voice-controlled AI assistant with face recognition and local LLM support
+"""
+
+import os
+import json
+import sys
+
+# Add any necessary imports here
+try:
+    import numpy as np
+    import torch
+    import face_recognition
+    import ollama
+except ImportError as e:
+    print(f"Error: Missing dependency - {e}")
+    sys.exit(1)
+
+class JarvisAssistant:
+    def __init__(self, config_path="data/config.json"):
+        """Initialize the JARVIS assistant with configuration"""
+        self.config = self.load_config(config_path)
+        self.running = False
+        
+    def load_config(self, config_path):
+        """Load configuration from JSON file"""
+        try:
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"Config file not found: {config_path}")
+            return {}
+    
+    def start(self):
+        """Start the JARVIS assistant"""
+        print("JARVIS AI Assistant starting...")
+        self.running = True
+        # TODO: Implement main loop
+        
+    def stop(self):
+        """Stop the JARVIS assistant"""
+        print("JARVIS AI Assistant stopping...")
+        self.running = False
+
+if __name__ == "__main__":
+    jarvis = JarvisAssistant()
+    try:
+        jarvis.start()
+    except KeyboardInterrupt:
+        jarvis.stop()
+        print("\nShutdown gracefully.")
 EOF
 
 # Config
