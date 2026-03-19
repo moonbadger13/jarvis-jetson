@@ -146,8 +146,11 @@ print_success "dlib installed"
 
 # ---------- Other Python packages ----------
 pip install face_recognition
-pip install numpy scipy sounddevice pypdf webrtcvad openwakeword PySide6 PyQt5
+pip install numpy scipy sounddevice pypdf webrtcvad openwakeword
 
+# Qt5 only (PySide6 + PyQt5 conflict causes "qt5 default" errors)
+# Using PyQt5 for Jetson stability
+pip install PyQt5
 # ---------- Vosk (ARM64) ----------
 pip install https://github.com/alphacep/vosk-api/releases/download/v0.3.45/vosk-0.3.45-py3-none-linux_aarch64.whl
 
@@ -271,6 +274,8 @@ cat > ~/jarvis_app/run_jarvis.sh << EOF
 source ~/jarvis_env/bin/activate
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64:\$LD_LIBRARY_PATH
 export DISPLAY=:0
+# Fix Qt platform plugin issues on Jetson
+export QT_QPA_PLATFORM=xcb
 cd ~/jarvis_app
 python3 jarvis_jetson.py
 EOF
