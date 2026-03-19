@@ -16,6 +16,27 @@ print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+package_available() {
+    apt-cache show "$1" 2>/dev/null | awk '/^Package: / { found=1 } END { exit(found ? 0 : 1) }'
+}
+
+install_available_packages() {
+    local missing=()
+    local pkg
+
+    for pkg in "$@"; do
+        if package_available "$pkg"; then
+            sudo apt install -y "$pkg"
+        else
+            missing+=("$pkg")
+        fi
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        print_warning "Skipping unavailable packages: ${missing[*]}"
+    fi
+}
+
 # ---------- System check ----------
 if [ ! -f /etc/nv_tegra_release ]; then
     print_warning "Not a Jetson device. Continue anyway? (y/n)"
@@ -33,18 +54,25 @@ sudo apt install -y \
     portaudio19-dev libsndfile1 ffmpeg libopenblas-dev liblapack-dev \
     libjpeg-dev libpng-dev libtiff-dev libavcodec-dev libavformat-dev \
     libswscale-dev libv4l-dev libxvidcore-dev libx264-dev libatlas-base-dev \
-    libhdf5-dev libhdf5-serial-dev libhdf5-103 \
-    libqt5gui5 libqt5core5a libqt5widgets5 libssl-dev \
+    libhdf5-dev libhdf5-serial-dev libssl-dev \
+    libqt5gui5 libqt5core5a libqt5widgets5 \
     python3-pyqt5 python3-pyqt5.qtsvg python3-sip-dev \
-    qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
     libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
     libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
     libxcb-xfixes0 libxcb-xkb1 libxkbcommon-x11-0 \
-    libgl1-mesa-glx libgl1-mesa-dri mesa-utils
+    libgl1 libgl1-mesa-dri mesa-utils
 
-# qt5-default is optional (not in newer Ubuntu)
-if apt-cache show qt5-default &>/dev/null; then
+# Jetson images vary by Ubuntu / JetPack release, so install Qt build packages only when available.
+install_available_packages \
+    libhdf5-103 \
+    qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools
+
+# qt5-default was removed from newer Ubuntu releases and breaks curl|bash installs when apt cannot resolve it.
+if package_available qt5-default; then
+    print_status "Installing legacy qt5-default compatibility package..."
     sudo apt install -y qt5-default
+else
+    print_warning "qt5-default is not available on this Jetson image; continuing with Qt runtime/dev packages instead."
 fi
 print_success "Dependencies installed"
 
@@ -75,10 +103,13 @@ print_status "JetPack major: ${JETPACK_VERSION:-unknown}, Python: $PYTHON_VERSIO
 
 # ---------- Select correct PyTorch wheel ----------
 TORCH_WHEEL=""
+TORCH_WHEEL_CANDIDATES=()
 case $JETPACK_VERSION in
     32|34)  # JetPack 4.x (L4T R32/R34)
         if [ "$PYTHON_VERSION" == "3.6" ]; then
-            TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v46/pytorch/torch-1.10.0-cp36-cp36m-linux_aarch64.whl"
+            TORCH_WHEEL_CANDIDATES=(
+                "https://developer.download.nvidia.com/compute/redist/jp/v461/pytorch/torch-1.11.0a0+17540c5+nv22.01-cp36-cp36m-linux_aarch64.whl"
+            )
         else
             print_error "JetPack 4 requires Python 3.6, you have $PYTHON_VERSION"
             exit 1
@@ -86,7 +117,9 @@ case $JETPACK_VERSION in
         ;;
     35)  # JetPack 5.x (L4T R35)
         if [ "$PYTHON_VERSION" == "3.8" ]; then
-            TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl"
+            TORCH_WHEEL_CANDIDATES=(
+                "https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl"
+            )
         else
             print_error "JetPack 5 requires Python 3.8, you have $PYTHON_VERSION"
             exit 1
@@ -94,7 +127,11 @@ case $JETPACK_VERSION in
         ;;
     36)  # JetPack 6.x (L4T R36)
         if [ "$PYTHON_VERSION" == "3.10" ]; then
-            TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.1.0-cp310-cp310-linux_aarch64.whl"
+            TORCH_WHEEL_CANDIDATES=(
+                "https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.4.0a0+3bcc3cddb5.nv24.07.16234504-cp310-cp310-linux_aarch64.whl"
+                "https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.4.0a0+f70bd71a48.nv24.06.15634931-cp310-cp310-linux_aarch64.whl"
+                "https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.4.0a0+07cecf4168.nv24.05.14710581-cp310-cp310-linux_aarch64.whl"
+            )
         else
             print_error "JetPack 6 requires Python 3.10, you have $PYTHON_VERSION"
             exit 1
@@ -108,17 +145,26 @@ case $JETPACK_VERSION in
 esac
 
 # ---------- Install PyTorch ----------
+TORCH_WHEEL_FILE=""
+for candidate in "${TORCH_WHEEL_CANDIDATES[@]}"; do
+    print_status "Trying PyTorch wheel: $candidate"
+    candidate_file=$(basename "$candidate")
+    if wget -O "$candidate_file" "$candidate"; then
+        TORCH_WHEEL="$candidate"
+        TORCH_WHEEL_FILE="$candidate_file"
+        break
+    fi
+    rm -f "$candidate_file"
+    print_warning "Wheel URL unavailable, trying next candidate..."
+done
+
 if [ -n "$TORCH_WHEEL" ]; then
-    print_status "Downloading PyTorch wheel: $TORCH_WHEEL"
-    wget -O torch.whl "$TORCH_WHEEL" || {
-        print_error "Download failed. Check URL or network."
-        exit 1
-    }
-    pip install --no-cache-dir torch.whl
-    rm torch.whl
+    pip install --no-cache-dir "$TORCH_WHEEL_FILE"
+    rm -f "$TORCH_WHEEL_FILE"
     print_success "PyTorch installed"
 else
-    print_error "No matching PyTorch wheel. Follow manual instructions above."
+    print_error "No matching PyTorch wheel URL was reachable for JetPack $JETPACK_VERSION / Python $PYTHON_VERSION."
+    print_error "Check your network or install a wheel manually from NVIDIA's Jetson PyTorch page."
     exit 1
 fi
 
