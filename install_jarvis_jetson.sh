@@ -16,6 +16,27 @@ print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+package_available() {
+    apt-cache show "$1" 2>/dev/null | awk '/^Package: / { found=1 } END { exit(found ? 0 : 1) }'
+}
+
+install_available_packages() {
+    local missing=()
+    local pkg
+
+    for pkg in "$@"; do
+        if package_available "$pkg"; then
+            sudo apt install -y "$pkg"
+        else
+            missing+=("$pkg")
+        fi
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        print_warning "Skipping unavailable packages: ${missing[*]}"
+    fi
+}
+
 # ---------- System check ----------
 if [ ! -f /etc/nv_tegra_release ]; then
     print_warning "Not a Jetson device. Continue anyway? (y/n)"
@@ -33,18 +54,25 @@ sudo apt install -y \
     portaudio19-dev libsndfile1 ffmpeg libopenblas-dev liblapack-dev \
     libjpeg-dev libpng-dev libtiff-dev libavcodec-dev libavformat-dev \
     libswscale-dev libv4l-dev libxvidcore-dev libx264-dev libatlas-base-dev \
-    libhdf5-dev libhdf5-serial-dev libhdf5-103 \
-    libqt5gui5 libqt5core5a libqt5widgets5 libssl-dev \
+    libhdf5-dev libhdf5-serial-dev libssl-dev \
+    libqt5gui5 libqt5core5a libqt5widgets5 \
     python3-pyqt5 python3-pyqt5.qtsvg python3-sip-dev \
-    qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools \
     libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
     libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
     libxcb-xfixes0 libxcb-xkb1 libxkbcommon-x11-0 \
-    libgl1-mesa-glx libgl1-mesa-dri mesa-utils
+    libgl1 libgl1-mesa-dri mesa-utils
 
-# qt5-default is optional (not in newer Ubuntu)
-if apt-cache show qt5-default &>/dev/null; then
+# Jetson images vary by Ubuntu / JetPack release, so install Qt build packages only when available.
+install_available_packages \
+    libhdf5-103 \
+    qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools
+
+# qt5-default was removed from newer Ubuntu releases and breaks curl|bash installs when apt cannot resolve it.
+if package_available qt5-default; then
+    print_status "Installing legacy qt5-default compatibility package..."
     sudo apt install -y qt5-default
+else
+    print_warning "qt5-default is not available on this Jetson image; continuing with Qt runtime/dev packages instead."
 fi
 print_success "Dependencies installed"
 
