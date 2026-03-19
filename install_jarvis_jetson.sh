@@ -103,10 +103,13 @@ print_status "JetPack major: ${JETPACK_VERSION:-unknown}, Python: $PYTHON_VERSIO
 
 # ---------- Select correct PyTorch wheel ----------
 TORCH_WHEEL=""
+TORCH_WHEEL_CANDIDATES=()
 case $JETPACK_VERSION in
     32|34)  # JetPack 4.x (L4T R32/R34)
         if [ "$PYTHON_VERSION" == "3.6" ]; then
-            TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v46/pytorch/torch-1.10.0-cp36-cp36m-linux_aarch64.whl"
+            TORCH_WHEEL_CANDIDATES=(
+                "https://developer.download.nvidia.com/compute/redist/jp/v461/pytorch/torch-1.11.0a0+17540c5+nv22.01-cp36-cp36m-linux_aarch64.whl"
+            )
         else
             print_error "JetPack 4 requires Python 3.6, you have $PYTHON_VERSION"
             exit 1
@@ -114,7 +117,9 @@ case $JETPACK_VERSION in
         ;;
     35)  # JetPack 5.x (L4T R35)
         if [ "$PYTHON_VERSION" == "3.8" ]; then
-            TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl"
+            TORCH_WHEEL_CANDIDATES=(
+                "https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl"
+            )
         else
             print_error "JetPack 5 requires Python 3.8, you have $PYTHON_VERSION"
             exit 1
@@ -122,7 +127,11 @@ case $JETPACK_VERSION in
         ;;
     36)  # JetPack 6.x (L4T R36)
         if [ "$PYTHON_VERSION" == "3.10" ]; then
-            TORCH_WHEEL="https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.1.0-cp310-cp310-linux_aarch64.whl"
+            TORCH_WHEEL_CANDIDATES=(
+                "https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.4.0a0+3bcc3cddb5.nv24.07.16234504-cp310-cp310-linux_aarch64.whl"
+                "https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.4.0a0+f70bd71a48.nv24.06.15634931-cp310-cp310-linux_aarch64.whl"
+                "https://developer.download.nvidia.com/compute/redist/jp/v60/pytorch/torch-2.4.0a0+07cecf4168.nv24.05.14710581-cp310-cp310-linux_aarch64.whl"
+            )
         else
             print_error "JetPack 6 requires Python 3.10, you have $PYTHON_VERSION"
             exit 1
@@ -136,17 +145,23 @@ case $JETPACK_VERSION in
 esac
 
 # ---------- Install PyTorch ----------
+for candidate in "${TORCH_WHEEL_CANDIDATES[@]}"; do
+    print_status "Trying PyTorch wheel: $candidate"
+    if wget -O torch.whl "$candidate"; then
+        TORCH_WHEEL="$candidate"
+        break
+    fi
+    rm -f torch.whl
+    print_warning "Wheel URL unavailable, trying next candidate..."
+done
+
 if [ -n "$TORCH_WHEEL" ]; then
-    print_status "Downloading PyTorch wheel: $TORCH_WHEEL"
-    wget -O torch.whl "$TORCH_WHEEL" || {
-        print_error "Download failed. Check URL or network."
-        exit 1
-    }
     pip install --no-cache-dir torch.whl
     rm torch.whl
     print_success "PyTorch installed"
 else
-    print_error "No matching PyTorch wheel. Follow manual instructions above."
+    print_error "No matching PyTorch wheel URL was reachable for JetPack $JETPACK_VERSION / Python $PYTHON_VERSION."
+    print_error "Check your network or install a wheel manually from NVIDIA's Jetson PyTorch page."
     exit 1
 fi
 
